@@ -102,3 +102,15 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+.idea/.gitignore
+.idea/ManTraNet.iml
+.idea/misc.xml
+.idea/modules.xml
+.idea/other.xml
+.idea/vcs.xml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/inspectionProfiles/Project_Default.xml
+.vscode/launch.json
+.vscode/settings.json
+src/modelCore.py
+
