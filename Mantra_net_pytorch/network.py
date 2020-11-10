@@ -1,9 +1,12 @@
+import numpy as np
+from utility.utilityRead import imread2f
 import torch
 from torch import nn
 from torch.nn import functional as F
 from collections import OrderedDict
 from convlstm import ConvLSTM
-
+import matplotlib.pyplot as plt
+from PIL import Image
 
 class SRMConv2D(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, padding=2):
@@ -169,7 +172,7 @@ class ZPool2DGlobal(nn.Module):
 
 
 class MantraNet(nn.Module):
-    def __init__(self, Featex=None, pool_size_list=[7, 15, 31]):
+    def __init__(self, Featex=FeatexVGG16(), pool_size_list=[7, 15, 31]):
         super(MantraNet, self).__init__()
         self.rf = Featex
         self.outlierTrans = nn.Conv2d(
@@ -201,7 +204,7 @@ class MantraNet(nn.Module):
         return output
 
 
-X = torch.randn([1, 3, 256, 256])
-net = MantraNet(FeatexVGG16())
-Y = net(X)
-print(Y.shape)
+# X = torch.randn([64, 3, 256, 256])
+# net = MantraNet(FeatexVGG16())
+# Y = net(X)
+# print(Y.shape)
