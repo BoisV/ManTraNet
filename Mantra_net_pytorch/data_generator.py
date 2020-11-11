@@ -1,22 +1,14 @@
-from numpy.core.defchararray import count, mod
-from numpy.core.fromnumeric import clip
-from numpy.core.numeric import indices
-from skimage.morphology import disk
-from matplotlib import pyplot as plt
-from skimage.morphology.selem import star
-from skimage.util.dtype import convert
-import torch
 import numpy as np
-from PIL import Image
 from glob import glob
-from scipy import ndimage
-from skimage import filters, util, transform, exposure
-from torch import var
-from torch.utils.data import Dataset
-from scipy import signal
+from numpy import random
+from skimage import filters, util, transform, exposure, io
+from matplotlib import pyplot as plt
 import os
+import argparse
+
 
 def img_manipulation(img, mode=0):
+    # img = np.array(img, dtype='int8')
     # add manipulation
     if mode == 0:  # gaussian噪声
         return util.random_noise(img, mode='gaussian', mean=0.5, var=0.3)
@@ -46,7 +38,7 @@ def img_manipulation(img, mode=0):
 
 
 def convertOneImg2Patches(filename, patch_size=256, number=40):
-    img = Image.open(filename)
+    img = io.imread(filename)
     img_array = np.asarray(img)
     h, w = img_array.shape[:2]
     patches_list = []
@@ -58,62 +50,63 @@ def convertOneImg2Patches(filename, patch_size=256, number=40):
     return patches_list
 
 
-def convertImgInDir2Patches(filedir, saveDir='./dataset', patch_size=256, number=100000, train=0.8,val = 0.1, test=0.1):
+def getAllPatches(filedir, number, patch_size):
     dir_list = glob(filedir + '/*')
-    numberPerImg = number // (275 * len(dir_list))
+    numberPerImg = number // (275 * len(dir_list)) + 1
     if numberPerImg == 0:
         numberPerImg = 1
     patches_list = []
     for dir in dir_list:
         print('start reading %s...' % (dir))
         for img in glob(dir+'/*'):
-            X = convertOneImg2Patches(img, patch_size=256, number=numberPerImg)
+            X = convertOneImg2Patches(
+                img, patch_size=patch_size, number=numberPerImg)
             patches_list.extend(X)
         print('finish reading %s...' % (dir))
         if len(patches_list) >= number:
             break
+    patches_list = patches_list[:number]
+    random.shuffle(patches_list)
     print('get all patches succeed!')
-    indices = range(len(patches_list))
-    np.random.shuffle(indices)
-    if train + val + test > 1:
-        assert('sum of train, val and test must be 1')
-    patches_list = patches_list[indices[:number]]
-    patches_list_train = patches_list[:train*number]
-    patches_list_train = patches_list[train*number: (train+val)*number]
-    patches_list_test = patches_list[(train+val)*number:]
-    for mode in range(0, 8):
-        count = 0
-        batch = train * number // 8
-        for patch in patches_list_train[mode*batch:(mode+1)*batch]:
-            p = img_manipulation(patch, mode)
-            count += 1
-            plt.imsave(os.path.join(saveDir, 'train/mode%d/patches/%5d.png' % (mode, count)), p, format='png')
-        
-        count = 0
-        batch = val * number // 8
-        for patch in patches_list_train[mode*batch:(mode+1)*batch]:
-            p = img_manipulation(patch, mode)
-            count += 1
-            plt.imsave(os.path.join(
-                saveDir, 'val/mode%d/patches/%5d.png' % (mode, count)), p, format='png')
-
-        count = 0
-        batch = test * number // 8
-        for patch in patches_list_test[mode*batch:(mode+1)*batch]:
-            p = img_manipulation(patch, mode)
-            count += 1
-            plt.imsave(os.path.join(saveDir, 'test/mode%d/patches/%5d.png' %
-                                    (mode, count)), p, format='png')
+    return patches_list
 
 
+def manipalate(imgs, mode):
+    imgs_manipulated = []
+    for img in imgs:
+        imgs_manipulated.append(img_manipulation(img, mode))
+    return imgs_manipulated
 
-def loadDataset(filedir):
-    pass
+
+def gen_dataset(fileDir, saveDir, name='train', patch_size=256, number=10000):
+    patches_list = getAllPatches(fileDir, number, patch_size)
+    n = number // 8
+    for mode in range(8):
+        patches_m = manipalate(patches_list[mode*n: (mode+1)*n], mode)
+        for idx, p in enumerate(patches_m):
+            path = saveDir + '/' + name + ('/mode%d' % mode)
+            if not os.path.exists(path):
+                os.makedirs(path)
+            plt.imsave(path + ('/p%05d.jpg' % (idx+1)), p)
 
 
-# class KCMIDataset(Dataset):
-#     def __init__(self) -> None:
+parser = argparse.ArgumentParser(description='dataset generator')
+parser.add_argument('--fileDir', default='F:\code\MachineLearning\datasets\sp-society-camera-model-identification\\train\\train', type=str,
+                    help='choose the dir of dataset')
+parser.add_argument('--saveDir', default='./dataset',
+                    type=str, help='choose the saveDir')
+parser.add_argument('--name', default='train',
+                    type=str, help='select train, val or test')
+parser.add_argument('--patch_size', default=256,
+                    type=int, help='set patch size')
+parser.add_argument('--number', default=100,
+                    type=int, help='set patches number')
+args = parser.parse_args()
 
 if __name__ == "__main__":
-    convertImgInDir2Patches(
-        filedir='F:\code\MachineLearning\datasets\sp-society-camera-model-identification\\train\\train', saveDir='./dataset', number=100,)
+    gen_dataset(
+        fileDir=args.fileDir,
+        saveDir=args.saveDir,
+        name=args.name,
+        patch_size=args.patch_size,
+        number=args.number)
