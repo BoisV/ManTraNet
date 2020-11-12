@@ -4,15 +4,15 @@ import torch
 import glob
 import logging
 from torch.utils.data.dataloader import DataLoader
-from network import MantraNet, FeatexVGG16, IMTFE, bayarConstraint
+from Mantra_net_pytorch.network import MantraNet, FeatexVGG16, IMTFE, bayarConstraint
 from torch import device, mode, optim, nn, cuda
 import argparse
 from torchvision.transforms import transforms
-from dataset import MyDataset
+from Mantra_net_pytorch.dataset import MyDataset
 
 def get_logger(filename, verbosity=1, name=None):
     if not os.path.exists(filename):
-        open(filename, mode='w')
+        open(filename, mode='w+')
     level_dict = {0: logging.DEBUG, 1: logging.INFO, 2: logging.WARNING}
     formatter = logging.Formatter(
         "[%(asctime)s][%(filename)s][line:%(lineno)d][%(levelname)s] %(message)s"
@@ -20,7 +20,7 @@ def get_logger(filename, verbosity=1, name=None):
     logger = logging.getLogger(name)
     logger.setLevel(level_dict[verbosity])
 
-    fh = logging.FileHandler(filename, "w")
+    fh = logging.FileHandler(filename, "a+")
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
@@ -69,8 +69,8 @@ def evalute_acc(Y_pred, Y):
     return (Y_pred.argmax(dim=1) == Y).to(torch.float32).mean()
 
 if __name__ == "__main__":
-    device = torch.device('cuda:0' if cuda.is_available() else 'cpu')
-
+    # torch.cuda.set_device(1)
+    device = torch.device('cuda' if cuda.is_available() else 'cpu')
     model = IMTFE(Featex=FeatexVGG16(), in_size=128)
     initial_epoch = findLastCheckpoint(
         save_dir=save_dir, name='IMTFE')  # IMTFE or MantraNet
@@ -78,12 +78,13 @@ if __name__ == "__main__":
         print('resuming by loading epoch %03d' % initial_epoch)
         model = torch.load(os.path.join(
             save_dir, 'model_%03d.pth' % initial_epoch))
+    model = nn.DataParallel(model)
     model = model.to(device)
 
     batch_size = 64
     batches = 1000
     MAX_EPOCH = 100
-    lr = 1e-4
+    lr = 1e-5
 
     transform = transforms.Compose([transforms.RandomCrop(size=(128,128)),
                                     transforms.ToTensor()])
@@ -106,27 +107,28 @@ if __name__ == "__main__":
             Y = Y.to(device)
             Y_pred = model(X)
             Y_pred = Y_pred.reshape(Y_pred.shape[0], Y_pred.shape[1])
-            loss = criterion(Y_pred, Y)
+            loss = criterion(Y_pred, Y).mean()
             loss.backward()
             optimizer.step()
-            model.Featex.combinedConv.bayarConv2d.weight = bayarConstraint(model.Featex.combinedConv.bayarConv2d.weight)
-            with torch.no_grad:
-                loss_epochs += loss.sum()
-                n_batch+=1
-                acc = evalute_acc(Y_pred, Y)
-                logger.info(
-                    'Epoch:[{}/{}]\t batch_idx:{} loss={:.5f}\t acc={:.5f}'.format(epoch, MAX_EPOCH, n_batch, loss/X.shape[0], acc))
-                if n_batch > batches:
-                    break
-        with torch.no_grad:
-            acc = 0
-            model = model.eval()
-            for X, Y in val_iter:
-                X = X.to(device)
-                Y = Y.to(device)
-                Y_pred = model(X)
-                acc += evalute_acc(Y_pred, Y)
+            weight = model.module.Featex.combinedConv.bayarConv2d.weight
+            model.module.Featex.combinedConv.bayarConv2d.weight = nn.Parameter(bayarConstraint(weight))
+            torch.cuda.empty_cache()
+            loss_epochs += loss
+            n_batch += 1
+            acc = evalute_acc(Y_pred, Y)
+            logger.info(
+                'Epoch:[{}/{}] batch_idx:{}\t loss={:.5f}\t acc={:.5f}'.format(epoch, MAX_EPOCH, n_batch, loss, acc))
+            if n_batch > batches:
+                break
+        torch.cuda.empty_cache()
+        acc = 0
+        model = model.eval()
+        for X, Y in val_iter:
+            X = X.to(device)
+            Y = Y.to(device)
+            Y_pred = model(X)
+            acc += evalute_acc(Y_pred, Y)
         logger.info(
-                'Epoch:[{}/{}]\t loss={:.5f}\t acc={:.3f}'.format(epoch, MAX_EPOCH, loss_epochs/len(dataset_train), acc/len(dataset_val)))
+                'Epoch:[{}/{}]\t loss={:.5f}\t acc={:.3f}'.format(epoch, MAX_EPOCH, loss_epochs/MAX_EPOCH, acc/len(dataset_val)))
         torch.save(model.getFeatex.state_dict(),
                    os.path.join(save_dir, args.name, ('model_%d.pth'%(epoch))))

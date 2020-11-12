@@ -224,12 +224,13 @@ class IMTFE(nn.Module):
         return self.Featex
 
 
-def bayarConstraint(weight):
+def bayarConstraint(weight_):
+    weight = weight_[0]
     h, w = weight.shape[1: 3]
-    weight[:, h//2+1, w//2+1] = 0
+    weight[:, h//2, w//2] = 0
     weight /= weight.sum(dim=(1, 2), keepdim=True)
-    weight[:, h//2+1, w//2+1] = -1
-    return weight
+    weight[:, h//2, w//2] = -1
+    return weight_
 
 
 # X = torch.randn([2, 3, 128, 128])
