@@ -4,8 +4,8 @@ import torch
 import glob
 import logging
 from torch.utils.data.dataloader import DataLoader
-from network import MantraNet, FeatexVGG16, IMTFE
-from torch import device, optim, nn, cuda
+from network import MantraNet, FeatexVGG16, IMTFE, bayarConstraint
+from torch import device, mode, optim, nn, cuda
 import argparse
 from torchvision.transforms import transforms
 from dataset import MyDataset
@@ -68,7 +68,7 @@ data_dir='./dataset'
 def evalute_acc(Y_pred, Y):
     return (Y_pred.argmax(dim=1) == Y).to(torch.float32).mean()
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
     device = torch.device('cuda:0' if cuda.is_available() else 'cpu')
 
     model = IMTFE(Featex=FeatexVGG16(), in_size=128)
@@ -109,26 +109,24 @@ def evalute_acc(Y_pred, Y):
             loss = criterion(Y_pred, Y)
             loss.backward()
             optimizer.step()
-            loss_epochs += loss.sum()
-            n_batch+=1
-            acc = evalute_acc(Y_pred, Y)
-            logger.info(
-                'Epoch:[{}/{}]\t batch_idx:{} loss={:.5f}\t acc={:.5f}'.format(epoch, MAX_EPOCH, n_batch, loss/X.shape[0], acc))
-            if n_batch > batches:
-                break
-        acc = 0
-        model = model.eval()
-        for X, Y in val_iter:
-            X = X.to(device)
-            Y = Y.to(device)
-            Y_pred = model(X)
-            acc += evalute_acc(Y_pred, Y)
+            model.Featex.combinedConv.bayarConv2d.weight = bayarConstraint(model.Featex.combinedConv.bayarConv2d.weight)
+            with torch.no_grad:
+                loss_epochs += loss.sum()
+                n_batch+=1
+                acc = evalute_acc(Y_pred, Y)
+                logger.info(
+                    'Epoch:[{}/{}]\t batch_idx:{} loss={:.5f}\t acc={:.5f}'.format(epoch, MAX_EPOCH, n_batch, loss/X.shape[0], acc))
+                if n_batch > batches:
+                    break
+        with torch.no_grad:
+            acc = 0
+            model = model.eval()
+            for X, Y in val_iter:
+                X = X.to(device)
+                Y = Y.to(device)
+                Y_pred = model(X)
+                acc += evalute_acc(Y_pred, Y)
         logger.info(
-            'Epoch:[{}/{}]\t loss={:.5f}\t acc={:.3f}'.format(epoch, MAX_EPOCH, loss_epochs/len(dataset_train), acc/len(dataset_val)))
+                'Epoch:[{}/{}]\t loss={:.5f}\t acc={:.3f}'.format(epoch, MAX_EPOCH, loss_epochs/len(dataset_train), acc/len(dataset_val)))
         torch.save(model.getFeatex.state_dict(),
                    os.path.join(save_dir, args.name, ('model_%d.pth'%(epoch))))
-
-
-Y_pred = torch.arange(start=0, end=5)
-Y = torch.arange([start=0, end=10])
-print(evalute_acc(Y_pred, Y))

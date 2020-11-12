@@ -1,8 +1,11 @@
 import torch
-from torch import nn, set_flush_denormal
+from torch import batch_norm, nn, set_flush_denormal
 from torch.nn import functional as F
 from collections import OrderedDict
+
+from torch.nn.modules import module
 from convlstm import ConvLSTM
+
 
 class SRMConv2D(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, padding=2):
@@ -11,7 +14,8 @@ class SRMConv2D(nn.Module):
         self.out_channels = out_channels
         self.stride = stride
         self.padding = padding
-        self.SRMWeights = nn.Parameter(self._get_srm_list(), requires_grad=False)
+        self.SRMWeights = nn.Parameter(
+            self._get_srm_list(), requires_grad=False)
 
     def _get_srm_list(self):
         # srm kernel 1
@@ -69,9 +73,9 @@ class FeatexVGG16(nn.Module):
     def __init__(self, type=1):
         super(FeatexVGG16, self).__init__()
         # block1
+        self.combinedConv = CombinedConv2D(in_channels=3)
         self.block1 = nn.Sequential(OrderedDict([
-            ('b1c1', CombinedConv2D(in_channels=3)),
-            ('b1c2', nn.Conv2d(
+            ('b1c1', nn.Conv2d(
                 in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)),
             ('b1ac', nn.ReLU())
         ]))
@@ -127,6 +131,7 @@ class FeatexVGG16(nn.Module):
         self.activation = None if type >= 1 else nn.Tanh()
 
     def forward(self, X):
+        X= self.combinedConv(X)
         X = self.block1(X)
         X = self.block2(X)
         X = self.block3(X)
@@ -206,7 +211,8 @@ class IMTFE(nn.Module):
         self.Featex = Featex
         self.conv1 = nn.Conv2d(
             in_channels=256, out_channels=8, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=8, out_channels=8, kernel_size=in_size, stride=1, padding=0)
+        self.conv2 = nn.Conv2d(in_channels=8, out_channels=8,
+                               kernel_size=in_size, stride=1, padding=0)
 
     def forward(self, input):
         out = self.Featex(input)
@@ -217,9 +223,26 @@ class IMTFE(nn.Module):
     def getFeatex(self):
         return self.Featex
 
+
+def bayarConstraint(weight):
+    h, w = weight.shape[1: 3]
+    weight[:, h//2+1, w//2+1] = 0
+    weight /= weight.sum(dim=(1, 2), keepdim=True)
+    weight[:, h//2+1, w//2+1] = -1
+    return weight
+
+
 # X = torch.randn([2, 3, 128, 128])
 # net = FeatexVGG16()
 # net = IMTFE(Featex=FeatexVGG16(), in_size=128)
 # # net = MantraNet(FeatexVGG16())
 # Y = net(X)
 # print(Y.shape)
+# net = CombinedConv2D()
+# weight = net.bayarConv2d.weight[0]
+# net.bayarConv2d.weight[0] = bayarConstraint(weight)
+# print(net.bayarConv2d.weight[0,:, 3,3])
+# model = MantraNet(FeatexVGG16())
+# X = torch.rand([1,3,128,128])
+# out = model(X)
+# print(out.shape)
