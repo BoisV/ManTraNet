@@ -4,7 +4,7 @@ import argparse
 parser = argparse.ArgumentParser(description='label Generator')
 parser.add_argument('--saveDir', default='./dataset',
                     type=str, help='choose the saveDir')
-parser.add_argument('--name', default='train',
+parser.add_argument('--name', default='val',
                     type=str, help='select train, val or test')
 args = parser.parse_args()
 

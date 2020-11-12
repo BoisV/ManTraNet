@@ -1,6 +1,5 @@
-from skimage import io
 import os
-import matplotlib.pyplot as plt
+from PIL import Image
 from torch.utils.data import Dataset
 
 
@@ -26,12 +25,14 @@ class MyDataset(Dataset):
         if not os.path.isfile(image_path):
             print(image_path + 'does not exit!')
             return None
-        image = io.imread(image_path)
+        with Image.open(image_path) as img:
+            image = img.convert('RGB')
         label = int(self.names_list[index].split(' ')[1])
-        sample = {'image': image, 'label': label}
+        # image = torch.from_numpy(image, dtype=torch.float32)
+        # label = torch.from_numpy(label, dtype=torch.float32)
         if self.transform:
-            sample = self.transform(sample)
-        return sample
+            image = self.transform(image)
+        return image, label
 
 
 if __name__ == "__main__":

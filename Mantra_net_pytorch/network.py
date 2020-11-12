@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+from torch import nn, set_flush_denormal
 from torch.nn import functional as F
 from collections import OrderedDict
 from convlstm import ConvLSTM
@@ -11,7 +11,7 @@ class SRMConv2D(nn.Module):
         self.out_channels = out_channels
         self.stride = stride
         self.padding = padding
-        self.SRMWeights = self._get_srm_list()
+        self.SRMWeights = nn.Parameter(self._get_srm_list(), requires_grad=False)
 
     def _get_srm_list(self):
         # srm kernel 1
@@ -200,7 +200,26 @@ class MantraNet(nn.Module):
         return output
 
 
-# X = torch.randn([64, 3, 256, 256])
-# net = MantraNet(FeatexVGG16())
+class IMTFE(nn.Module):
+    def __init__(self, Featex, in_size) -> None:
+        super(IMTFE, self).__init__()
+        self.Featex = Featex
+        self.conv1 = nn.Conv2d(
+            in_channels=256, out_channels=8, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=8, out_channels=8, kernel_size=in_size, stride=1, padding=0)
+
+    def forward(self, input):
+        out = self.Featex(input)
+        out = self.conv1(out)
+        out = self.conv2(out)
+        return out
+
+    def getFeatex(self):
+        return self.Featex
+
+# X = torch.randn([2, 3, 128, 128])
+# net = FeatexVGG16()
+# net = IMTFE(Featex=FeatexVGG16(), in_size=128)
+# # net = MantraNet(FeatexVGG16())
 # Y = net(X)
 # print(Y.shape)

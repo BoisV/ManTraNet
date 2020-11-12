@@ -1,16 +1,58 @@
-import torch
-from network import MantraNet
-from torch import optim, nn
-import glob
 import os
 import re
+import torch
+import glob
+import logging
+from torch.utils.data.dataloader import DataLoader
+from network import MantraNet, FeatexVGG16, IMTFE
+from torch import device, optim, nn, cuda
+import argparse
+from torchvision.transforms import transforms
+from dataset import MyDataset
 
-def findLastCheckpoint(save_dir):
-    file_list = glob.glob(os.path.join(save_dir, 'model_*.pth'))
+def get_logger(filename, verbosity=1, name=None):
+    if not os.path.exists(filename):
+        open(filename, mode='w')
+    level_dict = {0: logging.DEBUG, 1: logging.INFO, 2: logging.WARNING}
+    formatter = logging.Formatter(
+        "[%(asctime)s][%(filename)s][line:%(lineno)d][%(levelname)s] %(message)s"
+    )
+    logger = logging.getLogger(name)
+    logger.setLevel(level_dict[verbosity])
+
+    fh = logging.FileHandler(filename, "w")
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    sh = logging.StreamHandler()
+    sh.setFormatter(formatter)
+    logger.addHandler(sh)
+
+    return logger
+
+
+logger = get_logger('./log/train.log')
+
+parser = argparse.ArgumentParser(description='Mantra Net')
+parser.add_argument('--dataDir', default='./dataset', type=str,
+                    help='choose the dir of dataset')
+parser.add_argument('--saveDir', default='./nets',
+                    type=str, help='choose the saveDir')
+parser.add_argument('--name', default='IMTFE',
+                    type=str, help='select IMTFE or MantraNet')
+parser.add_argument('--patch_size', default=256,
+                    type=int, help='set patch size')
+parser.add_argument('--number', default=100,
+                    type=int, help='set patches number')
+args = parser.parse_args()
+    
+
+def findLastCheckpoint(save_dir, name):
+    file_list = glob.glob(os.path.join(save_dir, name, ('model_*.pth')))
     if file_list:
         epochs_exist = []
         for file_ in file_list:
-            result = re.findall(".*model_(.*).pth.*", file_)
+            result = re.findall(".*model_(.*).pth.*" , file_)
             epochs_exist.append(int(result[0]))
         initial_epoch = max(epochs_exist)
     else:
@@ -19,22 +61,74 @@ def findLastCheckpoint(save_dir):
 
 
 save_dir = './nets'
-data_dir=''
+data_dir='./dataset'
 
-if __name__ == "__main__":
-    model = MantraNet()
-    initial_epoch = findLastCheckpoint(save_dir=save_dir)
+
+
+def evalute_acc(Y_pred, Y):
+    return (Y_pred.argmax(dim=1) == Y).to(torch.float32).mean()
+
+# if __name__ == "__main__":
+    device = torch.device('cuda:0' if cuda.is_available() else 'cpu')
+
+    model = IMTFE(Featex=FeatexVGG16(), in_size=128)
+    initial_epoch = findLastCheckpoint(
+        save_dir=save_dir, name='IMTFE')  # IMTFE or MantraNet
     if initial_epoch > 0:
         print('resuming by loading epoch %03d' % initial_epoch)
         model = torch.load(os.path.join(
             save_dir, 'model_%03d.pth' % initial_epoch))
-    model.train()
+    model = model.to(device)
 
     batch_size = 64
     batches = 1000
-    num_epochs = 100
+    MAX_EPOCH = 100
     lr = 1e-4
+
+    transform = transforms.Compose([transforms.RandomCrop(size=(128,128)),
+                                    transforms.ToTensor()])
+    dataset_train = MyDataset(root_dir='./dataset/train', names_file='./dataset/train/train.txt', transform=transform)
+    dataset_val = MyDataset(root_dir='./dataset/val', names_file='./dataset/val/val.txt', transform=transform)
+    train_iter = DataLoader(
+        dataset_train, batch_size=batch_size, num_workers=4, shuffle=True)
+    val_iter = DataLoader(dataset_val, batch_size=batch_size, num_workers=4)
+
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    for epoch in range(num_epochs):
-        
+    criterion = criterion.to(device)
+    optimizer = optim.SGD(model.parameters(), lr=lr)
+    logger.info('start training!')
+    for epoch in range(MAX_EPOCH):
+        loss_epochs = 0
+        n_batch = 0
+        model = model.train()
+        for X, Y in train_iter:
+            X = X.to(device)
+            Y = Y.to(device)
+            Y_pred = model(X)
+            Y_pred = Y_pred.reshape(Y_pred.shape[0], Y_pred.shape[1])
+            loss = criterion(Y_pred, Y)
+            loss.backward()
+            optimizer.step()
+            loss_epochs += loss.sum()
+            n_batch+=1
+            acc = evalute_acc(Y_pred, Y)
+            logger.info(
+                'Epoch:[{}/{}]\t batch_idx:{} loss={:.5f}\t acc={:.5f}'.format(epoch, MAX_EPOCH, n_batch, loss/X.shape[0], acc))
+            if n_batch > batches:
+                break
+        acc = 0
+        model = model.eval()
+        for X, Y in val_iter:
+            X = X.to(device)
+            Y = Y.to(device)
+            Y_pred = model(X)
+            acc += evalute_acc(Y_pred, Y)
+        logger.info(
+            'Epoch:[{}/{}]\t loss={:.5f}\t acc={:.3f}'.format(epoch, MAX_EPOCH, loss_epochs/len(dataset_train), acc/len(dataset_val)))
+        torch.save(model.getFeatex.state_dict(),
+                   os.path.join(save_dir, args.name, ('model_%d.pth'%(epoch))))
+
+
+Y_pred = torch.arange(start=0, end=5)
+Y = torch.arange([start=0, end=10])
+print(evalute_acc(Y_pred, Y))

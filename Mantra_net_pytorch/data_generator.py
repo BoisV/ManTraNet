@@ -95,7 +95,7 @@ parser.add_argument('--fileDir', default='F:\code\MachineLearning\datasets\sp-so
                     help='choose the dir of dataset')
 parser.add_argument('--saveDir', default='./dataset',
                     type=str, help='choose the saveDir')
-parser.add_argument('--name', default='train',
+parser.add_argument('--name', default='val',
                     type=str, help='select train, val or test')
 parser.add_argument('--patch_size', default=256,
                     type=int, help='set patch size')
