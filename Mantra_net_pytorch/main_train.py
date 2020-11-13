@@ -78,13 +78,14 @@ if __name__ == "__main__":
         print('resuming by loading epoch %03d' % initial_epoch)
         model = torch.load(os.path.join(
             save_dir, 'model_%03d.pth' % initial_epoch))
-    model = nn.DataParallel(model)
     model = model.to(device)
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
 
     batch_size = 64
     batches = 1000
     MAX_EPOCH = 100
-    lr = 1e-5
+    lr = 1e-7
 
     transform = transforms.Compose([transforms.RandomCrop(size=(128,128)),
                                     transforms.ToTensor()])
@@ -110,8 +111,12 @@ if __name__ == "__main__":
             loss = criterion(Y_pred, Y).mean()
             loss.backward()
             optimizer.step()
-            weight = model.module.Featex.combinedConv.bayarConv2d.weight
-            model.module.Featex.combinedConv.bayarConv2d.weight = nn.Parameter(bayarConstraint(weight))
+            if isinstance(model, nn.DataParallel):
+                weight = model.module.Featex.combinedConv.bayarConv2d.weight
+                model.module.Featex.combinedConv.bayarConv2d.weight = nn.Parameter(bayarConstraint(weight))
+            else:
+                weight = model.Featex.combinedConv.bayarConv2d.weight
+                model.Featex.combinedConv.bayarConv2d.weight = nn.Parameter(bayarConstraint(weight))
             torch.cuda.empty_cache()
             loss_epochs += loss
             n_batch += 1
